@@ -22,11 +22,13 @@ type Config struct {
 type config struct {
 	Driver           string `toml:"driver"`
 	ConnectionString string `toml:"connection_string"`
+	PathDB           string `toml:"path"`
 
 	Items []configItem `toml:"item"`
 }
 
 type configItem struct {
+	ID                   string `toml:"id"`
 	SqlTemplate          string `toml:"sql_template"`
 	IndicatorColunmName  string `toml:"indicator_colunm_name"`
 	IndicatorColunmValue string `toml:"indicator_colunm_value"`
