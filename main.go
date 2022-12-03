@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/signal"
 
+	"notifyChangeDB/config"
+
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/godror/godror"
 	_ "github.com/lib/pq"
@@ -15,25 +17,17 @@ import (
 )
 
 func main() {
-	dbType := "postgres"
-	dic := map[string]struct {
-		dbDriver     string
-		conString    string
-		sqlFormat    string
-		colLastName  string
-		colLastValue string
-	}{
-		"sqlite":    {dbDriver: "sqlite3", conString: "file:test.db?cache=shared&mode=rwc", sqlFormat: "SELECT * from win_cpu limit 100"},
-		"postgres":  {dbDriver: "postgres", conString: "postgres://postgres:postgres@localhost/postgres?sslmode=disable", sqlFormat: `SELECT * from public.win_cpu where "time" > timestamp '%s' limit 100`, colLastName: "time", colLastValue: "1970-01-01 00:00:00"},
-		"oracle":    {dbDriver: "godror", conString: `user="scott" password="tiger" connectString="dbhost:1521/orclpdb1"`, sqlFormat: "SELECT * from table_name WHERE ROWNUM <= 100"},
-		"sqlserver": {dbDriver: "mssql", conString: "sqlserver://username:passwo%23rd@localhost/instance?database=databaseName&TrustServerCertificate=True", sqlFormat: "SELECT TOP 10 * from table_name;"},
+
+	cfg := config.NewConfig()
+	if cfg.LoadConfig("notifyChangeDB.conf") != nil {
+		return
+	}
+	if len(cfg.Cfg.Items) == 0 {
+		return
 	}
 
-	driverName := dic[dbType].dbDriver
-	connStr := dic[dbType].conString
-	strFmtSQL := dic[dbType].sqlFormat
-	colLastName := dic[dbType].colLastName
-	colLastValue := dic[dbType].colLastValue
+	driverName := cfg.Cfg.Driver
+	connStr := cfg.Cfg.ConnectionString
 
 	engine, err := xorm.NewEngine(driverName, connStr)
 	if err != nil {
@@ -50,6 +44,10 @@ func main() {
 		for {
 			var sc = bufio.NewScanner(os.Stdin)
 			if sc.Scan() {
+
+				strFmtSQL := cfg.Cfg.Items[0].SqlTemplate
+				colLastName := cfg.Cfg.Items[0].IndicatorColunmName
+				colLastValue := cfg.Cfg.Items[0].IndicatorColunmValue
 
 				strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
 				results, err := engine.Query(strSQL)
@@ -77,6 +75,8 @@ func main() {
 						fmt.Println(string(b))
 					}
 				}
+
+				cfg.Cfg.Items[0].IndicatorColunmValue = colLastValue
 			} else {
 				done <- "done"
 			}
