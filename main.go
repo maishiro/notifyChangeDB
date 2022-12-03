@@ -45,38 +45,41 @@ func main() {
 			var sc = bufio.NewScanner(os.Stdin)
 			if sc.Scan() {
 
-				strFmtSQL := cfg.Cfg.Items[0].SqlTemplate
-				colLastName := cfg.Cfg.Items[0].IndicatorColunmName
-				colLastValue := cfg.Cfg.Items[0].IndicatorColunmValue
+				for i := 0; i < len(cfg.Cfg.Items); i++ {
+					strFmtSQL := cfg.Cfg.Items[i].SqlTemplate
+					colLastName := cfg.Cfg.Items[i].IndicatorColunmName
+					colLastValue := cfg.Cfg.Items[i].IndicatorColunmValue
 
-				strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
-				results, err := engine.Query(strSQL)
-				if err != nil {
-					fmt.Println(err.Error())
-					return
-				}
-				for _, vs := range results {
-					mapItem := make(map[string]string)
-					for k, v := range vs {
-						// Check NOT NULL
-						if len(k) == 0 || len(v) == 0 {
-							continue
+					strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
+					results, err := engine.Query(strSQL)
+					if err != nil {
+						fmt.Println(err.Error())
+						return
+					}
+					for _, vs := range results {
+						mapItem := make(map[string]string)
+						for k, v := range vs {
+							// Check NOT NULL
+							if len(k) == 0 || len(v) == 0 {
+								continue
+							}
+
+							strValue := string(v)
+							mapItem[k] = strValue
+
+							if colLastName == k && strValue > colLastValue {
+								colLastValue = strValue
+							}
 						}
-
-						strValue := string(v)
-						mapItem[k] = strValue
-
-						if colLastName == k && strValue > colLastValue {
-							colLastValue = strValue
+						b, err := json.Marshal(mapItem)
+						if err == nil {
+							fmt.Println(string(b))
 						}
 					}
-					b, err := json.Marshal(mapItem)
-					if err == nil {
-						fmt.Println(string(b))
-					}
+
+					cfg.Cfg.Items[i].IndicatorColunmValue = colLastValue
 				}
 
-				cfg.Cfg.Items[0].IndicatorColunmValue = colLastValue
 			} else {
 				done <- "done"
 			}
