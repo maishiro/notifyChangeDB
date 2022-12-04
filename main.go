@@ -11,6 +11,10 @@ import (
 
 	"notifyChangeDB/config"
 
+	"log"
+
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
+
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/godror/godror"
 	_ "github.com/lib/pq"
@@ -19,12 +23,22 @@ import (
 )
 
 func main() {
+	log.SetOutput(&lumberjack.Logger{
+		Filename:   "./log/notifyChangeDB.log",
+		MaxSize:    10,
+		MaxBackups: 10,
+		MaxAge:     28,
+		Compress:   false,
+	})
 
 	cfg := config.NewConfig()
-	if cfg.LoadConfig("notifyChangeDB.conf") != nil {
+	err := cfg.LoadConfig("notifyChangeDB.conf")
+	if err != nil {
+		log.Printf("Failed to load config file: %v\n", err)
 		return
 	}
 	if len(cfg.Cfg.Items) == 0 {
+		log.Println("Nothing observe item")
 		return
 	}
 
@@ -32,10 +46,12 @@ func main() {
 	dbfile := cfg.Cfg.PathDB
 	db, err := sql.Open("sqlite3", dbfile)
 	if err != nil {
+		log.Printf("Failed to open sqlite3: %v\n", err)
 		return
 	}
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS process (event text PRIMARY KEY, timestamp text, indicate_key text, indicate_value text)`)
 	if err != nil {
+		log.Printf("Failed to create table [sqlite3]: %v\n", err)
 		return
 	}
 	// 内部処理用DBから、保存値を取得する
@@ -45,6 +61,7 @@ func main() {
 		var last_value string
 		err := db.QueryRow("SELECT indicate_value FROM process WHERE event = ?", id).Scan(&last_value)
 		if err == nil {
+			log.Printf("read value - %d %s: [%v]\n", i, id, last_value)
 			cfg.Cfg.Items[i].IndicatorColunmValue = last_value
 		}
 	}
@@ -54,7 +71,7 @@ func main() {
 
 	engine, err := xorm.NewEngine(driverName, connStr)
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Printf("Failed to open target DB: %v\n", err)
 		return
 	}
 
@@ -77,7 +94,7 @@ func main() {
 					strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
 					results, err := engine.Query(strSQL)
 					if err != nil {
-						fmt.Println(err.Error())
+						log.Printf("Failed to query: %v\n", err)
 						return
 					}
 					for _, vs := range results {
@@ -97,7 +114,11 @@ func main() {
 						}
 						b, err := json.Marshal(mapItem)
 						if err == nil {
-							fmt.Println(string(b))
+							strJSON := string(b)
+							log.Println(strJSON)
+							fmt.Println(strJSON)
+						} else {
+							log.Printf("json.Marshal Failed: %v\n", err)
 						}
 					}
 
@@ -107,7 +128,7 @@ func main() {
 					strNow := tmNow.Format("2006-01-02 15:04:05")
 					_, err = db.Exec(`INSERT INTO process (event, timestamp, indicate_key, indicate_value) VALUES (?, ?, ?, ?) on conflict(event) do update set timestamp = ?, indicate_value = ?`, id, strNow, colLastName, colLastValue, strNow, colLastValue)
 					if err != nil {
-						fmt.Println(err.Error())
+						log.Printf("Failed to exec: %v\n", err)
 					}
 				}
 
