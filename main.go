@@ -85,51 +85,9 @@ func main() {
 			var sc = bufio.NewScanner(os.Stdin)
 			if sc.Scan() {
 
-				for i := 0; i < len(cfg.Cfg.Items); i++ {
-					id := cfg.Cfg.Items[i].ID
-					strFmtSQL := cfg.Cfg.Items[i].SqlTemplate
-					colLastName := cfg.Cfg.Items[i].IndicatorColunmName
-					colLastValue := cfg.Cfg.Items[i].IndicatorColunmValue
-
-					strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
-					results, err := engine.Query(strSQL)
-					if err != nil {
-						log.Printf("Failed to query: %v\n", err)
-						return
-					}
-					for _, vs := range results {
-						mapItem := make(map[string]string)
-						for k, v := range vs {
-							// Check NOT NULL
-							if len(k) == 0 || len(v) == 0 {
-								continue
-							}
-
-							strValue := string(v)
-							mapItem[k] = strValue
-
-							if colLastName == k && strValue > colLastValue {
-								colLastValue = strValue
-							}
-						}
-						b, err := json.Marshal(mapItem)
-						if err == nil {
-							strJSON := string(b)
-							log.Println(strJSON)
-							fmt.Println(strJSON)
-						} else {
-							log.Printf("json.Marshal Failed: %v\n", err)
-						}
-					}
-
-					cfg.Cfg.Items[i].IndicatorColunmValue = colLastValue
-
-					tmNow := time.Now()
-					strNow := tmNow.Format("2006-01-02 15:04:05")
-					_, err = db.Exec(`INSERT INTO process (event, timestamp, indicate_key, indicate_value) VALUES (?, ?, ?, ?) on conflict(event) do update set timestamp = ?, indicate_value = ?`, id, strNow, colLastName, colLastValue, strNow, colLastValue)
-					if err != nil {
-						log.Printf("Failed to exec: %v\n", err)
-					}
+				hasError := checkDatabase(cfg, engine, db)
+				if hasError {
+					return
 				}
 
 			} else {
@@ -146,4 +104,57 @@ func main() {
 	case <-quit:
 	case <-done:
 	}
+}
+
+func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
+	for i := 0; i < len(cfg.Cfg.Items); i++ {
+		id := cfg.Cfg.Items[i].ID
+		strFmtSQL := cfg.Cfg.Items[i].SqlTemplate
+		colLastName := cfg.Cfg.Items[i].IndicatorColunmName
+		colLastValue := cfg.Cfg.Items[i].IndicatorColunmValue
+
+		strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
+		results, err := engine.QueryInterface(strSQL)
+		if err != nil {
+			log.Printf("Failed to query: %v\n", err)
+			return true
+		}
+		for _, vs := range results {
+			mapItem := make(map[string]interface{})
+			for k, v := range vs {
+				// Check NOT NULL
+				if len(k) == 0 || v == nil {
+					continue
+				}
+
+				mapItem[k] = v
+
+				strValue := ""
+				if vv, ok := v.(string); ok {
+					strValue = vv
+				}
+				if colLastName == k && strValue > colLastValue {
+					colLastValue = strValue
+				}
+			}
+			b, err := json.Marshal(mapItem)
+			if err == nil {
+				strJSON := string(b)
+				log.Println(strJSON)
+				fmt.Println(strJSON)
+			} else {
+				log.Printf("json.Marshal Failed: %v\n", err)
+			}
+		}
+
+		cfg.Cfg.Items[i].IndicatorColunmValue = colLastValue
+
+		tmNow := time.Now()
+		strNow := tmNow.Format("2006-01-02 15:04:05")
+		_, err = db.Exec(`INSERT INTO process (event, timestamp, indicate_key, indicate_value) VALUES (?, ?, ?, ?) on conflict(event) do update set timestamp = ?, indicate_value = ?`, id, strNow, colLastName, colLastValue, strNow, colLastValue)
+		if err != nil {
+			log.Printf("Failed to exec: %v\n", err)
+		}
+	}
+	return false
 }

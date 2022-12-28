@@ -1,6 +1,6 @@
 # notifyChangeDB
  
-telegrafツールでInput Plugin を execd としたときに、実行ファイルに使用する。  
+[Telegraf](https://github.com/influxdata/telegraf "Telegraf") ツールでInput Plugin を execd としたときに、実行ファイルに使用する。  
 DBに追加・変更されたレコードを取得してJSON出力する。  
 
 ## 使い方
@@ -10,7 +10,7 @@ DBに追加・変更されたレコードを取得してJSON出力する。
 - ID
 - SQL
 
-2. telegrafの設定ファイルでInput Pluginをexecdとし、実行するプログラムとして設定  
+2. Telegrafの設定ファイルでInput Pluginをexecdとし、実行するプログラムとして設定  
 - signal設定
 - JSONのパース設定
 
