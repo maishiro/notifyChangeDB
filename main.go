@@ -62,7 +62,7 @@ func main() {
 		err := db.QueryRow("SELECT indicate_value FROM process WHERE event = ?", id).Scan(&last_value)
 		if err == nil {
 			log.Printf("read value - %d %s: [%v]\n", i, id, last_value)
-			cfg.Cfg.Items[i].IndicatorColunmValue = last_value
+			cfg.Cfg.Items[i].IndicatorColumnValue = last_value
 		}
 	}
 
@@ -110,8 +110,39 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 	for i := 0; i < len(cfg.Cfg.Items); i++ {
 		id := cfg.Cfg.Items[i].ID
 		strFmtSQL := cfg.Cfg.Items[i].SqlTemplate
-		colLastName := cfg.Cfg.Items[i].IndicatorColunmName
-		colLastValue := cfg.Cfg.Items[i].IndicatorColunmValue
+		colLastName := cfg.Cfg.Items[i].IndicatorColumnName
+		colLastValue := cfg.Cfg.Items[i].IndicatorColumnValue
+		tags := cfg.Cfg.Items[i].Tags
+		mapTags := make(map[string]string)
+		for _, v := range tags {
+			mapTags[v] = ""
+		}
+		excludes := cfg.Cfg.Items[i].ExcludeColumns
+		mapExcludes := make(map[string]string)
+		for _, v := range excludes {
+			mapExcludes[v] = ""
+		}
+
+		strTable := fmt.Sprintf("last_%s", id)
+		sqlDDL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (tags text PRIMARY KEY, fields text)`, strTable)
+		_, err := db.Exec(sqlDDL)
+		if err != nil {
+			log.Printf("Failed to create table [sqlite3]: %v\n", err)
+		}
+
+		sqlLast := fmt.Sprintf(`SELECT tags, fields FROM %s`, strTable)
+		lastItems, err := db.Query(sqlLast)
+		if err != nil {
+			log.Printf("Failed to query: %v\n", err)
+			return true
+		}
+		mapLast := make(map[string]interface{})
+		for lastItems.Next() {
+			var strT string
+			var strF string
+			_ = lastItems.Scan(&strT, &strF)
+			mapLast[strT] = strF
+		}
 
 		strSQL := fmt.Sprintf(strFmtSQL, colLastValue)
 		results, err := engine.QueryInterface(strSQL)
@@ -120,8 +151,21 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 			return true
 		}
 		for _, vs := range results {
+
+			tags := make(map[string]interface{})
+			field := make(map[string]interface{})
+
 			mapItem := make(map[string]interface{})
 			for k, v := range vs {
+				//
+				if k == colLastName {
+					//
+				} else if _, ok := mapTags[k]; ok {
+					tags[k] = v
+				} else if _, ok := mapExcludes[k]; !ok {
+					field[k] = v
+				}
+
 				// Check NOT NULL
 				if len(k) == 0 || v == nil {
 					continue
@@ -137,17 +181,44 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 					colLastValue = strValue
 				}
 			}
+
+			b1, err1 := json.Marshal(tags)
+			b2, err2 := json.Marshal(field)
+			strJsonTags := ""
+			strJsonFields := ""
+			if 0 < len(tags) && err1 == nil && err2 == nil {
+				strJsonTags = string(b1)
+				strJsonFields = string(b2)
+				sqlLeft := fmt.Sprintf(`INSERT OR REPLACE INTO %s (tags, fields) VALUES (?, ?)`, strTable)
+				_, err = db.Exec(sqlLeft, strJsonTags, strJsonFields)
+				if err != nil {
+					log.Printf("Failed to exec: %v\n", err)
+				}
+			}
+
+			bSave := true
+			for k, v := range mapLast {
+				if k == strJsonTags {
+					if v == strJsonFields {
+						bSave = false
+					}
+					break
+				}
+			}
+
 			b, err := json.Marshal(mapItem)
 			if err == nil {
-				strJSON := string(b)
-				log.Println(strJSON)
-				fmt.Println(strJSON)
+				if bSave {
+					strJSON := string(b)
+					log.Println(strJSON)
+					fmt.Println(strJSON)
+				}
 			} else {
 				log.Printf("json.Marshal Failed: %v\n", err)
 			}
 		}
 
-		cfg.Cfg.Items[i].IndicatorColunmValue = colLastValue
+		cfg.Cfg.Items[i].IndicatorColumnValue = colLastValue
 
 		tmNow := time.Now()
 		strNow := tmNow.Format("2006-01-02 15:04:05")

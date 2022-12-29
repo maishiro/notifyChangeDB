@@ -28,10 +28,12 @@ type config struct {
 }
 
 type configItem struct {
-	ID                   string `toml:"id"`
-	SqlTemplate          string `toml:"sql_template"`
-	IndicatorColunmName  string `toml:"indicator_colunm_name"`
-	IndicatorColunmValue string `toml:"indicator_colunm_value"`
+	ID                   string   `toml:"id"`
+	SqlTemplate          string   `toml:"sql_template"`
+	IndicatorColumnName  string   `toml:"indicator_column_name"`
+	IndicatorColumnValue string   `toml:"indicator_column_value"`
+	Tags                 []string `toml:"tag_columns"`
+	ExcludeColumns       []string `toml:"exclude_columns"`
 }
 
 func NewConfig() *Config {
