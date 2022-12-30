@@ -28,12 +28,13 @@ type config struct {
 }
 
 type configItem struct {
-	ID                   string   `toml:"id"`
-	SqlTemplate          string   `toml:"sql_template"`
-	IndicatorColumnName  string   `toml:"indicator_column_name"`
-	IndicatorColumnValue string   `toml:"indicator_column_value"`
-	Tags                 []string `toml:"tag_columns"`
-	ExcludeColumns       []string `toml:"exclude_columns"`
+	ID                   string            `toml:"id"`
+	SqlTemplate          string            `toml:"sql_template"`
+	IndicatorColumnName  string            `toml:"indicator_column_name"`
+	IndicatorColumnValue string            `toml:"indicator_column_value"`
+	Tags                 []string          `toml:"tag_columns"`
+	ExcludeColumns       []string          `toml:"exclude_columns"`
+	ColumnTypes          map[string]string `toml:"column_types"`
 }
 
 func NewConfig() *Config {

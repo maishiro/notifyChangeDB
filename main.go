@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"reflect"
+	"strconv"
 	"time"
 
 	"notifyChangeDB/config"
@@ -120,6 +123,7 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 		for _, v := range excludes {
 			mapExcludes[v] = ""
 		}
+		colTypes := cfg.Cfg.Items[i].ColumnTypes
 
 		strTable := fmt.Sprintf("last_%s", id)
 		// 差分保存用テーブル作成 (SQLite3)
@@ -143,26 +147,39 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 			field := make(map[string]interface{})
 			mapItem := make(map[string]interface{})
 			for k, v := range vs {
-				//
-				if k == colLastName {
-					//
-				} else if _, ok := mapTags[k]; ok {
-					tags[k] = v
-				} else if _, ok := mapExcludes[k]; !ok {
-					field[k] = v
-				}
-
 				// Check NOT NULL
 				if len(k) == 0 || v == nil {
 					continue
 				}
 
-				mapItem[k] = v
-
 				strValue := ""
 				if vv, ok := v.(string); ok {
 					strValue = vv
+				} else {
+					switch t := v.(type) {
+					case []uint8:
+						strValue = string(t)
+					case int32:
+						strValue = fmt.Sprint(int(t))
+					case float64:
+						strValue = fmt.Sprint(float64(t))
+					default:
+						log.Printf("default type: %v\n", t)
+						strValue = fmt.Sprintf("%v", t)
+					}
 				}
+
+				//
+				if k == colLastName {
+					//
+				} else if _, ok := mapTags[k]; ok {
+					tags[k] = strValue
+				} else if _, ok := mapExcludes[k]; !ok {
+					field[k] = strValue
+				}
+
+				parseValue(strValue, k, v, colTypes, mapItem)
+
 				if colLastName == k && strValue > colLastValue {
 					colLastValue = strValue
 				}
@@ -173,7 +190,7 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 			// 差分データ検証
 			if checkDiff(mapLast, strJsonTags, strJsonFields) {
 				// 差分出力
-				outputDiff(mapItem)
+				outputDiff(os.Stdout, mapItem)
 			}
 		}
 
@@ -186,6 +203,78 @@ func checkDatabase(cfg *config.Config, engine *xorm.Engine, db *sql.DB) bool {
 		}
 	}
 	return false
+}
+
+func parseValue(strValue string, k string, v interface{}, colTypes map[string]string, mapItem map[string]interface{}) {
+	if colType, ok := colTypes[k]; ok {
+
+		switch colType {
+		case "int":
+			if vi, ok := v.(int); ok {
+				mapItem[k] = vi
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "int32":
+			i32, err := strconv.ParseInt(strValue, 10, 32)
+			if err == nil {
+				mapItem[k] = i32
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "int64":
+			i64, err := strconv.ParseInt(strValue, 10, 64)
+			if err == nil {
+				mapItem[k] = i64
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "uint":
+			if vi, ok := v.(uint); ok {
+				mapItem[k] = vi
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "uint32":
+			ui, err := strconv.ParseUint(strValue, 10, 32)
+			if err == nil {
+				mapItem[k] = ui
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "uint64":
+			ui, err := strconv.ParseUint(strValue, 10, 64)
+			if err == nil {
+				mapItem[k] = ui
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "float32":
+			f32, err := strconv.ParseFloat(strValue, 32)
+			if err == nil {
+				mapItem[k] = f32
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		case "float64":
+			f64, err := strconv.ParseFloat(strValue, 64)
+			if err == nil {
+				mapItem[k] = f64
+			} else {
+				log.Printf("Failed to parse(%s): [%v]:[%v](%v)\n", colType, k, v, strValue)
+				mapItem[k] = strValue
+			}
+		}
+	} else {
+		mapItem[k] = strValue
+	}
 }
 
 // 差分保存用テーブル作成 (SQLite3)
@@ -237,8 +326,8 @@ func saveDiffData(db *sql.DB, strTable string, tags map[string]interface{}, fiel
 func checkDiff(mapLast map[string]interface{}, strJsonTags string, strJsonFields string) bool {
 	bSave := true
 	for k, v := range mapLast {
-		if k == strJsonTags {
-			if v == strJsonFields {
+		if IsEqualJSON(k, strJsonTags) {
+			if IsEqualJSON(JsonString(v), strJsonFields) {
 				bSave = false
 			}
 			break
@@ -248,13 +337,49 @@ func checkDiff(mapLast map[string]interface{}, strJsonTags string, strJsonFields
 }
 
 // 差分出力
-func outputDiff(mapItem map[string]interface{}) {
+func outputDiff(w io.Writer, mapItem map[string]interface{}) {
 	b, err := json.Marshal(mapItem)
 	if err == nil {
 		strJSON := string(b)
 		log.Println(strJSON)
-		fmt.Println(strJSON)
+		fmt.Fprintln(w, strJSON)
 	} else {
 		log.Printf("json.Marshal Failed: %v\n", err)
 	}
+}
+
+func JsonString(v interface{}) string {
+	strJSON := ""
+	b, err := json.Marshal(v)
+	if err == nil {
+		strJSON = string(b)
+	}
+	return strJSON
+}
+
+func DeepEqualJSON(j1, j2 string) (bool, error) {
+	var err error
+
+	var d1 interface{}
+	err = json.Unmarshal([]byte(j1), &d1)
+	if err != nil {
+		return false, err
+	}
+
+	var d2 interface{}
+	err = json.Unmarshal([]byte(j2), &d2)
+	if err != nil {
+		return false, err
+	}
+
+	if reflect.DeepEqual(d1, d2) {
+		return true, nil
+	} else {
+		return false, nil
+	}
+}
+
+func IsEqualJSON(a, b string) bool {
+	bEqual, _ := DeepEqualJSON(a, b)
+	return bEqual
 }
